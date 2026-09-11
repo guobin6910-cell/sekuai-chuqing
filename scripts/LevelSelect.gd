@@ -9,7 +9,7 @@ func _ready() -> void:
 func _build_ui() -> void:
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color("1a1040")
+	bg.color = Color("1B1438")
 	add_child(bg)
 
 	var root := VBoxContainer.new()
@@ -86,7 +86,7 @@ func _style_back(b: Button) -> void:
 	b.add_theme_stylebox_override("normal", n)
 	b.add_theme_stylebox_override("hover", n)
 	b.add_theme_stylebox_override("pressed", n)
-	b.add_theme_color_override("font_color", Color("1a1040"))
+	b.add_theme_color_override("font_color", Color("1B1438"))
 
 
 func _open_level(index: int) -> void:

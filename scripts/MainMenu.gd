@@ -9,7 +9,7 @@ func _ready() -> void:
 func _build_ui() -> void:
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color("1a1040")
+	bg.color = Color("1B1438")
 	add_child(bg)
 
 	var v := VBoxContainer.new()
@@ -30,9 +30,9 @@ func _build_ui() -> void:
 	v.add_child(title)
 
 	var sub := Label.new()
-	sub.text = "滑動色塊 · 推出清關"
+	sub.text = "黃十字通道 · 邊緣色箭頭 · 塑膠積木"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_font_size_override("font_size", 24)
+	sub.add_theme_font_size_override("font_size", 22)
 	sub.add_theme_color_override("font_color", Color("95E1FF"))
 	v.add_child(sub)
 
@@ -44,9 +44,9 @@ func _build_ui() -> void:
 	v.add_child(_make_btn("選擇關卡", _on_select))
 
 	var tip := Label.new()
-	tip.text = "點選色塊後，朝一方向滑動\n整塊滑出棋盤邊緣即可清除"
+	tip.text = "點邊緣色箭頭推動同色積木\n或拖曳積木沿行列滑動；經同色閘口出清"
 	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tip.add_theme_font_size_override("font_size", 18)
+	tip.add_theme_font_size_override("font_size", 17)
 	tip.add_theme_color_override("font_color", Color(1, 1, 1, 0.65))
 	v.add_child(tip)
 

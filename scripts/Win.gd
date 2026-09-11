@@ -9,7 +9,7 @@ func _ready() -> void:
 func _build_ui() -> void:
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color("1a1040")
+	bg.color = Color("1B1438")
 	add_child(bg)
 
 	var v := VBoxContainer.new()
@@ -27,7 +27,7 @@ func _build_ui() -> void:
 
 	var sub := Label.new()
 	var lv := GameState.current_level_index + 1
-	sub.text = "已清空第 %d 關的所有色塊" % lv
+	sub.text = "已完成第 %d 關目標" % lv
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 24)
 	sub.add_theme_color_override("font_color", Color("95E1FF"))

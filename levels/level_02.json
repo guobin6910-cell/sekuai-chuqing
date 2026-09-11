@@ -1,22 +1,25 @@
 {
   "id": 2,
-  "name": "第2關：穿越圍牆",
-  "width": 6,
-  "height": 6,
+  "name": "第2關：黃色通道",
+  "width": 5,
+  "height": 5,
+  "yellow_cross": { "type": "plus", "col": 2, "row": 2 },
   "walls": [
-    {"x": 2, "y": 1}, {"x": 2, "y": 2}, {"x": 2, "y": 3},
-    {"x": 3, "y": 3}, {"x": 4, "y": 3}
+    {"x": 3, "y": 0},
+    {"x": 4, "y": 0}
   ],
   "pieces": [
     {
       "id": 1,
       "color": "#4ECDC4",
-      "cells": [{"x": 0, "y": 2}]
-    },
-    {
-      "id": 2,
-      "color": "#FFE66D",
-      "cells": [{"x": 4, "y": 0}, {"x": 5, "y": 0}]
+      "cells": [{"x": 0, "y": 0}]
     }
-  ]
+  ],
+  "edge_arrows": [
+    { "side": "left", "index": 0, "color": "#4ECDC4", "dir": "out" }
+  ],
+  "goal": { "type": "reach_cross", "color": "#4ECDC4" },
+  "hint_text": "我搆不到黃色",
+  "hint_highlight": "黃色",
+  "hint_highlight_color": "#FFD400"
 }

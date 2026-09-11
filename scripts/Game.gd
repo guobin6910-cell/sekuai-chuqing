@@ -1,65 +1,49 @@
 extends Control
-## 遊戲主畫面：棋盤、選取、滑動、Undo、通關
+## 遊戲主畫面：黃十字棋盤、邊緣色箭頭、積木繪製、Undo／通關
 
-const BG := Color("1a1040")
-const CELL_EMPTY := Color("2a1a55")
-const CELL_WALL := Color("0d0820")
-const GRID_LINE := Color("3d2a6e")
-const SELECT_GLOW := Color("FFFFFF")
+const BG := Color("1B1438")
+const FRAME := Color("B8A4E0")
+const RECESS := Color("2A2050")
+const CELL_EMPTY := Color("32245A")
+const CELL_WALL := Color("140E2A")
+const CROSS_Y := Color("FFD400")
 
-var level_data: Dictionary = {}
-var grid_w: int = 5
-var grid_h: int = 5
-## piece_id -> { id, color: Color, cells: Array[Vector2i] }
-var pieces: Dictionary = {}
-var walls: Dictionary = {}  # "x,y" -> true
-
+var model: BoardModel = BoardModel.new()
 var selected_id: int = -1
-var undo_stack: Array = []  # Array of snapshots
+var undo_stack: Array = []
 var animating: bool = false
 
-var cell_size: float = 64.0
+var cell_size: float = 56.0
+var frame_inset: float = 36.0
 var board_origin: Vector2 = Vector2.ZERO
 
-var hud_label: Label
+var board_host: Control
 var board_layer: Control
 var piece_layer: Control
+var arrow_layer: Control
 var fx_layer: Control
-var hint_label: Label
+
+var hud_label: Label
+var hint_label: RichTextLabel
+var goal_label: Label
 
 var _drag_start: Vector2 = Vector2.ZERO
 var _dragging: bool = false
-var _press_piece: int = -1
+var _arrow_hit_rects: Array = []
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_load_level(GameState.current_level_index)
 	_build_ui()
-	_push_undo_baseline()
-	queue_redraw()
 
 
 func _load_level(index: int) -> void:
-	level_data = GameState.load_level_dict(index)
-	grid_w = int(level_data.get("width", 5))
-	grid_h = int(level_data.get("height", 5))
-	walls.clear()
-	pieces.clear()
+	var data := GameState.load_level_dict(index)
+	model = BoardModel.new()
+	model.load_from_dict(data)
 	selected_id = -1
 	undo_stack.clear()
-	for w in level_data.get("walls", []):
-		walls["%d,%d" % [int(w["x"]), int(w["y"])]] = true
-	for p in level_data.get("pieces", []):
-		var pid := int(p["id"])
-		var cells: Array[Vector2i] = []
-		for c in p["cells"]:
-			cells.append(Vector2i(int(c["x"]), int(c["y"])))
-		pieces[pid] = {
-			"id": pid,
-			"color": Color(str(p.get("color", "#FF6B9D"))),
-			"cells": cells,
-		}
 
 
 func _build_ui() -> void:
@@ -74,37 +58,47 @@ func _build_ui() -> void:
 
 	var root := VBoxContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	root.offset_left = 16
-	root.offset_right = -16
-	root.offset_top = 24
-	root.offset_bottom = -24
-	root.add_theme_constant_override("separation", 12)
+	root.offset_left = 14
+	root.offset_right = -14
+	root.offset_top = 18
+	root.offset_bottom = -18
+	root.add_theme_constant_override("separation", 10)
 	add_child(root)
 
 	hud_label = Label.new()
-	hud_label.text = str(level_data.get("name", "關卡"))
+	hud_label.text = model.level_name
 	hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hud_label.add_theme_font_size_override("font_size", 28)
+	hud_label.add_theme_font_size_override("font_size", 26)
 	hud_label.add_theme_color_override("font_color", Color("FFE66D"))
 	root.add_child(hud_label)
+
+	hint_label = RichTextLabel.new()
+	hint_label.bbcode_enabled = true
+	hint_label.fit_content = true
+	hint_label.scroll_active = false
+	hint_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	hint_label.custom_minimum_size = Vector2(0, 36)
+	hint_label.add_theme_font_size_override("normal_font_size", 22)
+	hint_label.add_theme_color_override("default_color", Color(1, 1, 1, 0.92))
+	_refresh_hint()
+	root.add_child(hint_label)
+
+	goal_label = Label.new()
+	goal_label.text = model.goal_summary()
+	goal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	goal_label.add_theme_font_size_override("font_size", 15)
+	goal_label.add_theme_color_override("font_color", Color("95E1FF"))
+	root.add_child(goal_label)
 
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	btn_row.add_theme_constant_override("separation", 12)
 	root.add_child(btn_row)
-
 	btn_row.add_child(_hud_btn("重新開始", _on_restart))
 	btn_row.add_child(_hud_btn("上一步", _on_undo))
 	btn_row.add_child(_hud_btn("選關", _on_level_select))
 
-	hint_label = Label.new()
-	hint_label.text = "點選色塊，再朝上下左右拖曳滑動"
-	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint_label.add_theme_font_size_override("font_size", 16)
-	hint_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
-	root.add_child(hint_label)
-
-	var board_host := Control.new()
+	board_host = Control.new()
 	board_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	board_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_child(board_host)
@@ -121,27 +115,45 @@ func _build_ui() -> void:
 	piece_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	board_host.add_child(piece_layer)
 
+	arrow_layer = Control.new()
+	arrow_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	arrow_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	arrow_layer.draw.connect(_draw_arrows)
+	board_host.add_child(arrow_layer)
+
 	fx_layer = Control.new()
 	fx_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
 	fx_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	board_host.add_child(fx_layer)
 
-	# 延後計算 cell_size（等 layout）
 	board_host.resized.connect(_recalc_layout)
 	call_deferred("_recalc_layout")
+
+
+func _refresh_hint(extra: String = "") -> void:
+	if hint_label == null:
+		return
+	var text := model.hint_text if extra.is_empty() else extra
+	var hi := model.hint_highlight
+	var hc := model.hint_highlight_color
+	if hi != "" and text.find(hi) >= 0:
+		var col := Color(hc)
+		var tag := "[color=#%s][b]%s[/b][/color]" % [col.to_html(false), hi]
+		text = text.replace(hi, tag)
+	hint_label.text = "[center]%s[/center]" % text
 
 
 func _hud_btn(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(140, 48)
+	b.custom_minimum_size = Vector2(132, 46)
 	b.add_theme_font_size_override("font_size", 18)
 	var n := StyleBoxFlat.new()
 	n.bg_color = Color("5B4B8A")
-	n.corner_radius_top_left = 10
-	n.corner_radius_top_right = 10
-	n.corner_radius_bottom_left = 10
-	n.corner_radius_bottom_right = 10
+	n.corner_radius_top_left = 12
+	n.corner_radius_top_right = 12
+	n.corner_radius_bottom_left = 12
+	n.corner_radius_bottom_right = 12
 	n.content_margin_left = 10
 	n.content_margin_right = 10
 	var h := n.duplicate()
@@ -160,28 +172,68 @@ func _recalc_layout() -> void:
 	var area := board_layer.size
 	if area.x < 10 or area.y < 10:
 		return
-	var pad := 8.0
-	cell_size = min((area.x - pad * 2) / float(grid_w), (area.y - pad * 2) / float(grid_h))
-	var bw := cell_size * grid_w
-	var bh := cell_size * grid_h
+	frame_inset = minf(42.0, minf(area.x, area.y) * 0.08)
+	var pad := 6.0
+	var usable := Vector2(area.x - pad * 2.0 - frame_inset * 2.0, area.y - pad * 2.0 - frame_inset * 2.0)
+	cell_size = minf(usable.x / float(model.grid_w), usable.y / float(model.grid_h))
+	var bw := cell_size * model.grid_w
+	var bh := cell_size * model.grid_h
 	board_origin = Vector2((area.x - bw) * 0.5, (area.y - bh) * 0.5)
 	_rebuild_piece_visuals()
 	board_layer.queue_redraw()
+	arrow_layer.queue_redraw()
+
+
+func _outer_frame_rect() -> Rect2:
+	return Rect2(
+		board_origin - Vector2(frame_inset, frame_inset),
+		Vector2(cell_size * model.grid_w, cell_size * model.grid_h) + Vector2(frame_inset, frame_inset) * 2.0
+	)
 
 
 func _draw_board() -> void:
-	if board_layer == null:
+	if board_layer == null or cell_size < 1.0:
 		return
-	for y in grid_h:
-		for x in grid_w:
+	var outer := _outer_frame_rect()
+	BrickDraw.draw_frame(board_layer, outer, frame_inset, FRAME, Color(0, 0, 0, 0.35), RECESS)
+	for y in model.grid_h:
+		for x in model.grid_w:
 			var r := Rect2(board_origin + Vector2(x, y) * cell_size, Vector2(cell_size, cell_size))
-			var inset := r.grow(-2)
-			var col := CELL_WALL if _is_wall(x, y) else CELL_EMPTY
-			board_layer.draw_rect(inset, col, true)
-			board_layer.draw_rect(inset, GRID_LINE, false, 1.5)
-	# 外框
-	var outer := Rect2(board_origin, Vector2(cell_size * grid_w, cell_size * grid_h))
-	board_layer.draw_rect(outer.grow(3), Color("95E1FF"), false, 3.0)
+			if model.is_wall(x, y):
+				BrickDraw.draw_wall_cell(board_layer, r, CELL_WALL)
+			elif model.is_cross(x, y):
+				BrickDraw.draw_cross_cell(board_layer, r, CROSS_Y)
+			else:
+				BrickDraw.draw_empty_cell(board_layer, r, CELL_EMPTY)
+
+
+func _draw_arrows() -> void:
+	_arrow_hit_rects.clear()
+	if arrow_layer == null or cell_size < 1.0:
+		return
+	var asize: float = minf(frame_inset * 0.72, cell_size * 0.55)
+	for i in model.arrows.size():
+		var a: Dictionary = model.arrows[i]
+		var side := str(a["side"])
+		var idx := int(a["index"])
+		var center := _arrow_center(side, idx)
+		BrickDraw.draw_triangle_arrow(arrow_layer, center, side, a["color"], asize)
+		var hit := Rect2(center - Vector2(asize, asize), Vector2(asize, asize) * 2.0)
+		_arrow_hit_rects.append({"rect": hit, "idx": i})
+
+
+func _arrow_center(side: String, idx: int) -> Vector2:
+	var mid := frame_inset * 0.48
+	match side:
+		"top":
+			return Vector2(board_origin.x + (idx + 0.5) * cell_size, board_origin.y - mid)
+		"bottom":
+			return Vector2(board_origin.x + (idx + 0.5) * cell_size, board_origin.y + model.grid_h * cell_size + mid)
+		"left":
+			return Vector2(board_origin.x - mid, board_origin.y + (idx + 0.5) * cell_size)
+		"right":
+			return Vector2(board_origin.x + model.grid_w * cell_size + mid, board_origin.y + (idx + 0.5) * cell_size)
+	return board_origin
 
 
 func _rebuild_piece_visuals() -> void:
@@ -189,63 +241,31 @@ func _rebuild_piece_visuals() -> void:
 		return
 	for c in piece_layer.get_children():
 		c.queue_free()
-	for pid in pieces.keys():
-		var p: Dictionary = pieces[pid]
+	for pid in model.pieces.keys():
+		var p: Dictionary = model.pieces[pid]
 		var node := Control.new()
 		node.name = "Piece_%d" % pid
 		node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		piece_layer.add_child(node)
 		for cell: Vector2i in p["cells"]:
-			if not _in_bounds(cell.x, cell.y):
+			if not model.in_bounds(cell.x, cell.y):
 				continue
-			var block := Panel.new()
-			block.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			var style := StyleBoxFlat.new()
-			style.bg_color = p["color"]
-			style.corner_radius_top_left = int(cell_size * 0.18)
-			style.corner_radius_top_right = int(cell_size * 0.18)
-			style.corner_radius_bottom_left = int(cell_size * 0.18)
-			style.corner_radius_bottom_right = int(cell_size * 0.18)
-			if pid == selected_id:
-				style.border_color = SELECT_GLOW
-				style.border_width_left = 3
-				style.border_width_right = 3
-				style.border_width_top = 3
-				style.border_width_bottom = 3
-			else:
-				style.border_color = p["color"].lightened(0.25)
-				style.border_width_left = 1
-				style.border_width_right = 1
-				style.border_width_top = 1
-				style.border_width_bottom = 1
-			block.add_theme_stylebox_override("panel", style)
-			var margin := cell_size * 0.08
-			block.position = board_origin + Vector2(cell) * cell_size + Vector2(margin, margin)
-			block.size = Vector2(cell_size - margin * 2, cell_size - margin * 2)
-			node.add_child(block)
+			var drawer := _BrickCell.new()
+			drawer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			drawer.base_color = p["color"]
+			drawer.selected = (int(pid) == selected_id)
+			var margin := cell_size * 0.06
+			drawer.position = board_origin + Vector2(cell) * cell_size + Vector2(margin, margin)
+			drawer.size = Vector2(cell_size - margin * 2.0, cell_size - margin * 2.0)
+			node.add_child(drawer)
 
 
-func _is_wall(x: int, y: int) -> bool:
-	return walls.has("%d,%d" % [x, y])
+class _BrickCell extends Control:
+	var base_color: Color = Color.WHITE
+	var selected: bool = false
 
-
-func _in_bounds(x: int, y: int) -> bool:
-	return x >= 0 and y >= 0 and x < grid_w and y < grid_h
-
-
-func _occupancy() -> Dictionary:
-	## "x,y" -> piece_id（僅棋盤內）
-	var occ := {}
-	for pid in pieces.keys():
-		for cell: Vector2i in pieces[pid]["cells"]:
-			if _in_bounds(cell.x, cell.y):
-				occ["%d,%d" % [cell.x, cell.y]] = pid
-	return occ
-
-
-func _piece_at(gx: int, gy: int) -> int:
-	var occ := _occupancy()
-	return int(occ.get("%d,%d" % [gx, gy], -1))
+	func _draw() -> void:
+		BrickDraw.draw_stud_brick(self, Rect2(Vector2.ZERO, size), base_color, selected)
 
 
 func _screen_to_cell(local_pos: Vector2) -> Vector2i:
@@ -254,9 +274,16 @@ func _screen_to_cell(local_pos: Vector2) -> Vector2i:
 		return Vector2i(-1, -1)
 	var gx := int(rel.x / cell_size)
 	var gy := int(rel.y / cell_size)
-	if not _in_bounds(gx, gy):
+	if not model.in_bounds(gx, gy):
 		return Vector2i(-1, -1)
 	return Vector2i(gx, gy)
+
+
+func _arrow_at(local_pos: Vector2) -> int:
+	for item in _arrow_hit_rects:
+		if item["rect"].has_point(local_pos):
+			return int(item["idx"])
+	return -1
 
 
 func _on_board_input(event: InputEvent) -> void:
@@ -264,44 +291,49 @@ func _on_board_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT:
-			if mb.pressed:
-				_drag_start = mb.position
-				_dragging = true
-				var cell := _screen_to_cell(mb.position)
-				_press_piece = _piece_at(cell.x, cell.y) if cell.x >= 0 else -1
-				if _press_piece >= 0:
-					selected_id = _press_piece
-					_rebuild_piece_visuals()
-			else:
-				if _dragging and selected_id >= 0:
-					var delta: Vector2 = mb.position - _drag_start
-					_try_slide_from_drag(delta)
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if mb.pressed:
+			_drag_start = mb.position
+			_dragging = true
+			var aidx := _arrow_at(mb.position)
+			if aidx >= 0:
 				_dragging = false
-				_press_piece = -1
+				_activate_arrow(aidx)
+				return
+			var cell := _screen_to_cell(mb.position)
+			var pid := model.piece_at(cell.x, cell.y) if cell.x >= 0 else -1
+			if pid >= 0:
+				selected_id = pid
+				_rebuild_piece_visuals()
+		else:
+			if _dragging and selected_id >= 0:
+				_try_swipe_drag(mb.position - _drag_start)
+			_dragging = false
 	elif event is InputEventScreenTouch:
 		var st := event as InputEventScreenTouch
 		if st.pressed:
 			_drag_start = st.position
 			_dragging = true
+			var aidx2 := _arrow_at(st.position)
+			if aidx2 >= 0:
+				_dragging = false
+				_activate_arrow(aidx2)
+				return
 			var cell2 := _screen_to_cell(st.position)
-			_press_piece = _piece_at(cell2.x, cell2.y) if cell2.x >= 0 else -1
-			if _press_piece >= 0:
-				selected_id = _press_piece
+			var pid2 := model.piece_at(cell2.x, cell2.y) if cell2.x >= 0 else -1
+			if pid2 >= 0:
+				selected_id = pid2
 				_rebuild_piece_visuals()
 		else:
 			if _dragging and selected_id >= 0:
-				var delta2: Vector2 = st.position - _drag_start
-				_try_slide_from_drag(delta2)
+				_try_swipe_drag(st.position - _drag_start)
 			_dragging = false
-			_press_piece = -1
-	elif event is InputEventScreenDrag:
-		pass  # 松手時處理
 
 
-func _try_slide_from_drag(delta: Vector2) -> void:
-	if delta.length() < cell_size * 0.25:
-		return  # 僅選取
+func _try_swipe_drag(delta: Vector2) -> void:
+	if delta.length() < cell_size * 0.22:
+		return
 	var dir := Vector2i.ZERO
 	if abs(delta.x) >= abs(delta.y):
 		dir = Vector2i(1, 0) if delta.x > 0 else Vector2i(-1, 0)
@@ -311,9 +343,14 @@ func _try_slide_from_drag(delta: Vector2) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if animating or selected_id < 0:
+	if animating:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_Z and event.ctrl_pressed:
+			_on_undo()
+			return
+		if selected_id < 0:
+			return
 		match event.keycode:
 			KEY_LEFT, KEY_A:
 				_slide_selected(Vector2i(-1, 0))
@@ -323,225 +360,146 @@ func _unhandled_input(event: InputEvent) -> void:
 				_slide_selected(Vector2i(0, -1))
 			KEY_DOWN, KEY_S:
 				_slide_selected(Vector2i(0, 1))
-			KEY_Z:
-				if event.ctrl_pressed:
-					_on_undo()
 
 
-func _can_step(pid: int, dir: Vector2i) -> bool:
-	var occ := _occupancy()
-	var p: Dictionary = pieces[pid]
-	for cell: Vector2i in p["cells"]:
-		var nx := cell.x + dir.x
-		var ny := cell.y + dir.y
-		if not _in_bounds(nx, ny):
-			continue  # 離開棋盤 OK
-		if _is_wall(nx, ny):
-			return false
-		var other: int = int(occ.get("%d,%d" % [nx, ny], -1))
-		if other >= 0 and other != pid:
-			return false
-	return true
-
-
-func _apply_step(pid: int, dir: Vector2i) -> void:
-	var p: Dictionary = pieces[pid]
-	var new_cells: Array[Vector2i] = []
-	for cell: Vector2i in p["cells"]:
-		new_cells.append(cell + dir)
-	p["cells"] = new_cells
-
-
-func _is_fully_off(pid: int) -> bool:
-	for cell: Vector2i in pieces[pid]["cells"]:
-		if _in_bounds(cell.x, cell.y):
-			return false
-	return true
+func _activate_arrow(idx: int) -> void:
+	var snap := model.snapshot()
+	var result := model.try_arrow(idx)
+	if not result.get("ok", false):
+		_refresh_hint("此箭頭目前無法推動")
+		return
+	undo_stack.append(snap)
+	animating = true
+	_play_result(result)
 
 
 func _slide_selected(dir: Vector2i) -> void:
-	if selected_id < 0 or not pieces.has(selected_id) or animating:
+	if selected_id < 0 or animating:
 		return
-	if not _can_step(selected_id, dir):
-		hint_label.text = "此方向無法移動"
+	var snap := model.snapshot()
+	var result := model.try_swipe(selected_id, dir)
+	if not result.get("ok", false):
+		_refresh_hint("此方向無法移動")
 		return
-
-	# 計算可滑幾步
-	var steps := 0
-	var sim_cells: Array[Vector2i] = pieces[selected_id]["cells"].duplicate()
-	while true:
-		# 暫時套用檢查
-		var ok := true
-		var occ := {}
-		for pid in pieces.keys():
-			if pid == selected_id:
-				continue
-			for cell: Vector2i in pieces[pid]["cells"]:
-				if _in_bounds(cell.x, cell.y):
-					occ["%d,%d" % [cell.x, cell.y]] = pid
-		for cell: Vector2i in sim_cells:
-			var nx := cell.x + dir.x
-			var ny := cell.y + dir.y
-			if not _in_bounds(nx, ny):
-				continue
-			if _is_wall(nx, ny):
-				ok = false
-				break
-			if occ.has("%d,%d" % [nx, ny]):
-				ok = false
-				break
-		if not ok:
-			break
-		# 前進一步
-		var next_cells: Array[Vector2i] = []
-		for cell: Vector2i in sim_cells:
-			next_cells.append(cell + dir)
-		sim_cells = next_cells
-		steps += 1
-		# 若已完全離場，停止
-		var all_off := true
-		for cell: Vector2i in sim_cells:
-			if _in_bounds(cell.x, cell.y):
-				all_off = false
-				break
-		if all_off:
-			break
-		if steps > grid_w + grid_h + 2:
-			break
-
-	if steps <= 0:
-		hint_label.text = "此方向無法移動"
-		return
-
-	_snapshot_before_move()
+	undo_stack.append(snap)
 	animating = true
-	hint_label.text = "滑動中…"
-	await _animate_slide(selected_id, dir, steps)
-	# 套用最終位置
-	var final_cells: Array[Vector2i] = []
-	for cell: Vector2i in pieces[selected_id]["cells"]:
-		final_cells.append(cell + dir * steps)
-	pieces[selected_id]["cells"] = final_cells
+	_play_result(result)
 
-	var cleared := false
-	if _is_fully_off(selected_id):
-		var col: Color = pieces[selected_id]["color"]
-		_spawn_exit_particles(col, dir)
-		pieces.erase(selected_id)
+
+func _play_result(result: Dictionary) -> void:
+	animating = true
+	var pid: int = int(result.get("pid", -1))
+	var dir: Vector2i = result.get("dir", Vector2i.ZERO)
+	var steps: int = int(result.get("steps", 1))
+	var cleared: bool = bool(result.get("cleared", false))
+	var col: Color = result.get("color", Color.WHITE)
+
+	if cleared:
+		await _spawn_ghost_and_tween(result)
+		_spawn_exit_particles(col, dir, result)
+	else:
+		_rebuild_piece_visuals()
+		var node := piece_layer.get_node_or_null("Piece_%d" % pid)
+		if node:
+			node.position -= Vector2(dir) * cell_size * float(steps)
+			var tw := create_tween()
+			tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			tw.tween_property(node, "position", node.position + Vector2(dir) * cell_size * float(steps), 0.12 + 0.04 * steps)
+			await tw.finished
+		else:
+			await get_tree().create_timer(0.05).timeout
+
+	if cleared and selected_id == pid:
 		selected_id = -1
-		cleared = true
-
 	_rebuild_piece_visuals()
 	board_layer.queue_redraw()
+	arrow_layer.queue_redraw()
 	animating = false
-	hint_label.text = "點選色塊，再朝上下左右拖曳滑動"
+	_refresh_hint()
 
-	if pieces.is_empty():
+	if model.check_win():
 		await get_tree().create_timer(0.35).timeout
 		_on_win()
 	elif cleared:
-		hint_label.text = "色塊已清除！"
+		_refresh_hint("色塊已出清！")
 
 
-func _animate_slide(pid: int, dir: Vector2i, steps: int) -> void:
-	var node := piece_layer.get_node_or_null("Piece_%d" % pid)
-	if node == null:
-		return
+func _spawn_ghost_and_tween(result: Dictionary) -> void:
+	var from_cells: Array = result.get("from_cells", [])
+	var dir: Vector2i = result.get("dir", Vector2i.ZERO)
+	var steps: int = int(result.get("steps", 1))
+	var col: Color = result.get("color", Color.WHITE)
+	var ghost := Control.new()
+	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	piece_layer.add_child(ghost)
+	for c in from_cells:
+		var cell := _as_cell(c)
+		var drawer := _BrickCell.new()
+		drawer.base_color = col
+		var margin := cell_size * 0.06
+		drawer.position = board_origin + Vector2(cell) * cell_size + Vector2(margin, margin)
+		drawer.size = Vector2(cell_size - margin * 2.0, cell_size - margin * 2.0)
+		ghost.add_child(drawer)
 	var tw := create_tween()
 	tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	var dist := Vector2(dir) * cell_size * float(steps)
-	tw.tween_property(node, "position", node.position + dist, 0.12 + 0.04 * steps)
+	tw.tween_property(ghost, "position", ghost.position + Vector2(dir) * cell_size * float(steps), 0.12 + 0.04 * steps)
 	await tw.finished
+	ghost.queue_free()
 
 
-func _spawn_exit_particles(color: Color, dir: Vector2i) -> void:
-	# 簡易粒子：數個小方塊飛出並淡出
-	var center := board_origin + Vector2(grid_w, grid_h) * cell_size * 0.5
-	if dir.x > 0:
-		center = board_origin + Vector2(grid_w * cell_size, grid_h * cell_size * 0.5)
-	elif dir.x < 0:
-		center = board_origin + Vector2(0, grid_h * cell_size * 0.5)
-	elif dir.y > 0:
-		center = board_origin + Vector2(grid_w * cell_size * 0.5, grid_h * cell_size)
-	else:
-		center = board_origin + Vector2(grid_w * cell_size * 0.5, 0)
+func _as_cell(c) -> Vector2i:
+	if typeof(c) == TYPE_VECTOR2I:
+		return c
+	if typeof(c) == TYPE_DICTIONARY:
+		return Vector2i(int(c["x"]), int(c["y"]))
+	return Vector2i.ZERO
 
-	for i in 10:
+
+func _spawn_exit_particles(color: Color, dir: Vector2i, result: Dictionary) -> void:
+	var from_cells: Array = result.get("from_cells", [])
+	var center := board_origin + Vector2(model.grid_w, model.grid_h) * cell_size * 0.5
+	if from_cells.size() > 0:
+		var cell := _as_cell(from_cells[0])
+		center = board_origin + Vector2(cell) * cell_size + Vector2(cell_size, cell_size) * 0.5
+		center += Vector2(dir) * cell_size * 0.9
+	for i in 14:
 		var p := ColorRect.new()
-		p.color = color
-		p.size = Vector2(8, 8)
-		p.position = center + Vector2(randf_range(-20, 20), randf_range(-20, 20))
+		p.color = color.lightened(randf_range(-0.1, 0.2))
+		var s := randf_range(6, 12)
+		p.size = Vector2(s, s)
+		p.position = center + Vector2(randf_range(-18, 18), randf_range(-18, 18))
 		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		fx_layer.add_child(p)
 		var tw := create_tween()
-		var target := p.position + Vector2(dir) * randf_range(40, 90) + Vector2(randf_range(-30, 30), randf_range(-30, 30))
-		tw.tween_property(p, "position", target, 0.4)
-		tw.parallel().tween_property(p, "modulate:a", 0.0, 0.4)
+		var target := p.position + Vector2(dir) * randf_range(50, 110) + Vector2(randf_range(-40, 40), randf_range(-40, 40))
+		tw.tween_property(p, "position", target, 0.45)
+		tw.parallel().tween_property(p, "modulate:a", 0.0, 0.45)
 		tw.tween_callback(p.queue_free)
-
-
-func _snapshot_before_move() -> void:
-	undo_stack.append(_make_snapshot())
-
-
-func _push_undo_baseline() -> void:
-	# 不推入，讓第一次 undo 回到開局：開局時 stack 空，restart 用 reload
-	pass
-
-
-func _make_snapshot() -> Dictionary:
-	var snap_pieces := {}
-	for pid in pieces.keys():
-		var cells_arr: Array = []
-		for cell: Vector2i in pieces[pid]["cells"]:
-			cells_arr.append({"x": cell.x, "y": cell.y})
-		snap_pieces[pid] = {
-			"id": pid,
-			"color": pieces[pid]["color"].to_html(false),
-			"cells": cells_arr,
-		}
-	return {"pieces": snap_pieces, "selected": selected_id}
-
-
-func _restore_snapshot(snap: Dictionary) -> void:
-	pieces.clear()
-	var sp: Dictionary = snap["pieces"]
-	for pid in sp.keys():
-		var id := int(pid)
-		var cells: Array[Vector2i] = []
-		for c in sp[pid]["cells"]:
-			cells.append(Vector2i(int(c["x"]), int(c["y"])))
-		pieces[id] = {
-			"id": id,
-			"color": Color(str(sp[pid]["color"])),
-			"cells": cells,
-		}
-	selected_id = int(snap.get("selected", -1))
-	if selected_id >= 0 and not pieces.has(selected_id):
-		selected_id = -1
 
 
 func _on_undo() -> void:
 	if animating:
 		return
 	if undo_stack.is_empty():
-		hint_label.text = "沒有可復原的步驟"
+		_refresh_hint("沒有可復原的步驟")
 		return
 	var snap: Dictionary = undo_stack.pop_back()
-	_restore_snapshot(snap)
+	model.restore(snap)
+	selected_id = -1
 	_rebuild_piece_visuals()
 	board_layer.queue_redraw()
-	hint_label.text = "已復原一步"
+	arrow_layer.queue_redraw()
+	_refresh_hint("已復原一步")
 
 
 func _on_restart() -> void:
 	if animating:
 		return
 	_load_level(GameState.current_level_index)
-	undo_stack.clear()
-	hud_label.text = str(level_data.get("name", "關卡"))
+	hud_label.text = model.level_name
+	goal_label.text = model.goal_summary()
 	_recalc_layout()
-	hint_label.text = "重新開始"
+	_refresh_hint("重新開始")
 
 
 func _on_level_select() -> void:

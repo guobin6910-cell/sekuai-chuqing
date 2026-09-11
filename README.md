@@ -1,106 +1,135 @@
 # 色塊出清
 
-Godot 4 益智遊戲：在格狀棋盤上選取色塊，沿行列滑動；整塊從邊緣推出即清除。清空所有色塊過關。
+Godot 4 益智遊戲：厚框塑膠棋盤被**黃色十字通道**分成四個象限；點擊邊緣**同色三角箭頭**推動積木，或拖曳積木沿行列滑動，經同色閘口出清。關卡目標可為出清、抵達黃通道、象限同色歸位等。
 
 倉庫：https://github.com/guobin6910-cell/sekuai-chuqing
 
+> 美術與名稱皆為原創，不使用任何第三方商標／App 圖示／專有素材。
+
 ## 系統需求
 
-- [Godot 4.2+](https://godotengine.org/)（建議 4.2／4.3／4.4）
-- 桌面或行動裝置（直向版面友善，亦可橫放視窗遊玩）
+- [Godot 4.2+](https://godotengine.org/)（建議 4.3；CI 使用 4.3-stable）
+- 桌面或行動裝置（直向版面友善）
 
 ## 如何開啟／執行
 
-1. 用 Godot 4 開啟本專案根目錄（含 `project.godot` 的資料夾）。
-2. 主場景已設為 `scenes/MainMenu.tscn`。
-3. 按 **F5**（或「執行專案」）即可遊玩。
+1. 用 Godot 4 開啟本專案根目錄（含 `project.godot`）。
+2. 主場景：`scenes/MainMenu.tscn`。
+3. 按 **F5** 執行。
 
-無需額外套件或素材包；色塊與介面皆以程式繪製。
+無需額外套件；棋盤框、黃十字、積木凸粒與箭頭皆以 CanvasItem 程序繪製。
 
 ## 操作說明
 
 | 操作 | 說明 |
 |------|------|
-| 點選／點擊色塊 | 選取該色塊（白邊高亮） |
-| 拖曳滑動 | 選取後朝上／下／左／右拖曳，色塊會沿該方向滑到受阻或推出盤外 |
-| 鍵盤 | 選取後用方向鍵或 WASD 滑動 |
+| 點邊緣色箭頭 | **主要操作**：推動該列／行上「距離閘口最近」的同色積木，沿箭頭方向滑到受阻或出清 |
+| 點選積木後拖曳 | 沿上／下／左／右滑到受阻（或經合法閘口出清） |
+| 鍵盤 | 選取後方向鍵／WASD |
 | 重新開始 | 重載本關 |
-| 上一步 | Undo（復原上一次滑動） |
+| 上一步 | Undo |
 | Ctrl+Z | 同上一步 |
 
-色塊**整塊**滑出棋盤邊緣後會清除，並有簡短粒子效果。全部清除即通關。
+頂部提示文案由關卡 JSON 的 `hint_text` 驅動，可高亮指定詞（如「黃色」）。
+
+## 移動規則（精確版）
+
+與 `scripts/BoardModel.gd`、`tools/verify_levels.py` 一致：
+
+1. **格子**：可行走格、固定牆、黃色十字通道（可行走，**不是出口**）。
+2. **積木**：多格 polyomino，整塊平移，不可旋轉；不可疊格、不可穿牆。
+3. **滑動**：選定方向後連續前進，直到下一步不合法為止。
+4. **邊緣箭頭**：每支箭頭綁定 `{side, index, color}`。按下後找出該軌道（該行或該列）上距離該側閘口最近的同色積木，朝該側方向滑動。
+5. **出清（離場）**：若下一步會使任一格越出棋盤，則該格必須對應「同側、同色、同 index」的箭頭閘口；只要有一格經合法閘口離場，**整塊立即出清**（粒子爆開）。
+6. **無閘口不可推出**：沒有對應同色箭頭的邊緣無法滑出。
+7. **通關**：依關卡 `goal.type` 判定（見下方 schema），不是一律清空。
 
 ## 關卡一覽（共 5 關）
 
-1. **推出教學** — 單格色塊，練習滑出
-2. **穿越圍牆** — 固定牆與短棒
-3. **擁擠色塊** — 多色互相擋路
-4. **L 型色塊** — L 形多格塊
-5. **綜合挑戰** — 牆、L、擁擠組合
+1. **邊緣箭頭** — 學會點色箭頭推出
+2. **黃色通道** — 把積木滑進黃十字（提示：我搆不到黃色）
+3. **多色擁擠** — 出口被擋，先清擋路色
+4. **L 型色塊** — L 形需對齊多格閘口
+5. **出清與歸位** — 清掉指定色，並把其餘色歸到正確象限
 
-關卡資料：`levels/level_01.json` … `level_05.json`
+關卡資料：`levels/level_01.json` … `level_05.json`  
+驗證可解：`python3 tools/verify_levels.py`
 
-## 如何新增關卡
-
-1. 在 `levels/` 新增 JSON，例如 `level_06.json`，格式：
+## 關卡 JSON schema
 
 ```json
 {
-  "id": 6,
-  "name": "第6關：自訂",
-  "width": 6,
-  "height": 6,
-  "walls": [{"x": 2, "y": 2}],
+  "id": 1,
+  "name": "第1關：範例",
+  "width": 5,
+  "height": 5,
+  "yellow_cross": { "type": "plus", "col": 2, "row": 2 },
+  "walls": [{"x": 3, "y": 0}],
   "pieces": [
     {
       "id": 1,
       "color": "#FF6B9D",
-      "cells": [{"x": 0, "y": 0}, {"x": 1, "y": 0}]
+      "cells": [{"x": 1, "y": 0}, {"x": 1, "y": 1}]
     }
-  ]
+  ],
+  "edge_arrows": [
+    { "side": "top", "index": 1, "color": "#FF6B9D", "dir": "out" }
+  ],
+  "goal": { "type": "clear_all" },
+  "hint_text": "點上方的粉紅箭頭",
+  "hint_highlight": "粉紅",
+  "hint_highlight_color": "#FF6B9D"
 }
 ```
 
-2. 在 `scripts/GameState.gd` 的 `LEVEL_COUNT` 與 `LEVEL_PATHS` 加入新路徑。
-3. 重新執行專案；選關畫面會依 `LEVEL_COUNT` 顯示。
+### 欄位
 
-### 欄位說明
+| 欄位 | 說明 |
+|------|------|
+| `width` / `height` | 棋盤寬高 |
+| `yellow_cross` | `plus`：以 `col`/`row`（或 `cx`/`cy`）畫十字通道；也可 `cells` 補點 |
+| `walls` | 固定牆 |
+| `pieces` | 積木；`cells` 為佔格；`color` 為 HTML 色碼 |
+| `edge_arrows` | `side`=`top\|bottom\|left\|right`；`index` 為對應直欄 x 或橫列 y；`color` 閘口色；`dir` 目前僅 `out` |
+| `goal.type` | 見下表 |
+| `hint_text` / `hint_highlight` / `hint_highlight_color` | 頂部提示與高亮詞 |
 
-- `width` / `height`：棋盤寬高
-- `walls`：不可進入的固定牆座標
-- `pieces`：色塊列表；`cells` 為該塊佔用的格子（可為 1×1、長條、L 等）
-- `color`：HTML 色碼
+### `goal.type`
+
+| type | 參數 | 意義 |
+|------|------|------|
+| `clear_all` | — | 清空所有積木 |
+| `clear_color` | `color` | 指定色全部出清即可（其他色可留） |
+| `reach_cross` | `color`（可空=任意） | 指定色任一格踩上黃十字 |
+| `sort_quadrants` | `quadrants`：`{tl,tr,bl,br}`→色碼 | 黃通道上不可留塊；每象限至多一種色；有寫到的象限必須為該色 |
+| `combined` | `clear_colors`[]、`sort_quadrants`{} | 先滿足出清色，再滿足象限歸位 |
+
+新增關卡後，在 `scripts/GameState.gd` 更新 `LEVEL_COUNT` 與 `LEVEL_PATHS`。
 
 ## 場景流程
 
 主選單 → 選關 → 遊戲 → 通關 → 下一關／選關／主選單
 
-
 ## 網頁版（GitHub Pages）
 
-可在瀏覽器（含 **iOS Safari**）直接遊玩，無需安裝 Godot。
-
 - **遊玩網址**：https://guobin6910-cell.github.io/sekuai-chuqing/
-- **匯出方式**：倉庫以 GitHub Actions 自動以 Godot 4.3 **單執行緒（single-threaded）** Web 預設匯出，並部署至 GitHub Pages。
-- 預設名稱為 `Web`，匯出路徑為 `build/web/index.html`（見 `export_presets.cfg`）。
-- CI 指令大致為：`godot --headless --export-release "Web" build/web/index.html`
-- 觸發條件：推送到 `main`（或 `feature/sekuai-chuqing-mvp`）、以及手動 `workflow_dispatch`。
+- GitHub Actions：Godot 4.3 **單執行緒** Web 預設匯出並部署 Pages
+- 預設名 `Web`，路徑 `build/web/index.html`
+- 觸發：推送 `main`（或 `feature/sekuai-chuqing-mvp`）、`workflow_dispatch`
 
-採用單執行緒匯出是為了在 GitHub Pages 靜態托管上避免 SharedArrayBuffer／COOP-COEP 標頭需求，相容性較好（尤其 iOS Safari）。
+單執行緒可避免 SharedArrayBuffer／COOP-COEP，較相容 iOS Safari。
 
-### iOS Safari 小提示
+### iOS Safari
 
-1. 用 Safari 開啟上述網址（建議直向握持）。
-2. 可選：點分享 →「加入主畫面」，之後像 App 一樣開啟。
-3. 若畫面空白或卡住，可強制重新整理；首次載入需下載 WASM，請稍候。
-4. 請保持裝置勿進入低耗電、並允許頁面使用足夠記憶體；分頁久置背景後再回來若異常，重新整理即可。
+1. Safari 開啟上述網址（建議直向）。
+2. 可「加入主畫面」。
+3. 首次載入需下載 WASM；若空白可強制重新整理。
 
-### 本機匯出（選用）
+### 本機匯出
 
-1. Godot 4.3+ 編輯器安裝對應 **Export Templates**。
-2. 專案 → 匯出 → 選擇「Web」預設（`variant/thread_support=false`）。
-3. 匯出至 `build/web/index.html`，以本機靜態伺服器開啟該目錄測試。
+1. 安裝 Godot 4.3 Export Templates。
+2. 匯出「Web」（`variant/thread_support=false`）至 `build/web/index.html`。
 
 ## 授權
 
-專案程式與關卡為原創內容；請依倉庫授權使用。
+專案程式、關卡與程序美術為原創內容；請依倉庫授權使用。

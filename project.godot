@@ -4,7 +4,7 @@ config_version=5
 
 [application]
 config/name="色塊出清"
-config/description="色塊滑動推出清空的益智遊戲"
+config/description="黃十字通道與邊緣色箭頭的塑膠積木益智遊戲"
 run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.2", "Forward Plus")
 config/icon="res://icon.svg"
