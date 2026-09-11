@@ -1,0 +1,14 @@
+{
+  "id": 1,
+  "name": "第1關：推出教學",
+  "width": 5,
+  "height": 5,
+  "walls": [],
+  "pieces": [
+    {
+      "id": 1,
+      "color": "#FF6B9D",
+      "cells": [{"x": 2, "y": 2}]
+    }
+  ]
+}
