@@ -1,0 +1,7 @@
+.godot/
+*.translation
+export/
+build/
+*.import
+.DS_Store
+.godot-ci/
