@@ -26,6 +26,7 @@ func _build_ui() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 40)
 	title.add_theme_color_override("font_color", Color("FFE66D"))
+	UITheme.apply(title)
 	root.add_child(title)
 
 	var grid := VBoxContainer.new()
@@ -43,6 +44,7 @@ func _build_ui() -> void:
 		b.custom_minimum_size = Vector2(0, 64)
 		b.add_theme_font_size_override("font_size", 22)
 		_style_level_btn(b, locked)
+		UITheme.apply(b)
 		var idx := i
 		b.pressed.connect(func(): _open_level(idx))
 		grid.add_child(b)
@@ -52,6 +54,7 @@ func _build_ui() -> void:
 	back.custom_minimum_size = Vector2(0, 56)
 	back.add_theme_font_size_override("font_size", 22)
 	_style_back(back)
+	UITheme.apply(back)
 	back.pressed.connect(_on_back)
 	root.add_child(back)
 

@@ -70,6 +70,7 @@ func _build_ui() -> void:
 	hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud_label.add_theme_font_size_override("font_size", 26)
 	hud_label.add_theme_color_override("font_color", Color("FFE66D"))
+	UITheme.apply(hud_label)
 	root.add_child(hud_label)
 
 	hint_label = RichTextLabel.new()
@@ -80,6 +81,7 @@ func _build_ui() -> void:
 	hint_label.custom_minimum_size = Vector2(0, 36)
 	hint_label.add_theme_font_size_override("normal_font_size", 22)
 	hint_label.add_theme_color_override("default_color", Color(1, 1, 1, 0.92))
+	UITheme.apply(hint_label)
 	_refresh_hint()
 	root.add_child(hint_label)
 
@@ -88,6 +90,7 @@ func _build_ui() -> void:
 	goal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	goal_label.add_theme_font_size_override("font_size", 15)
 	goal_label.add_theme_color_override("font_color", Color("95E1FF"))
+	UITheme.apply(goal_label)
 	root.add_child(goal_label)
 
 	var btn_row := HBoxContainer.new()
@@ -162,6 +165,7 @@ func _hud_btn(text: String, cb: Callable) -> Button:
 	b.add_theme_stylebox_override("hover", h)
 	b.add_theme_stylebox_override("pressed", h)
 	b.add_theme_color_override("font_color", Color.WHITE)
+	UITheme.apply(b)
 	b.pressed.connect(cb)
 	return b
 
@@ -217,7 +221,11 @@ func _draw_arrows() -> void:
 		var side := str(a["side"])
 		var idx := int(a["index"])
 		var center := _arrow_center(side, idx)
-		BrickDraw.draw_triangle_arrow(arrow_layer, center, side, a["color"], asize)
+		var col: Color = a["color"]
+		# Dim / desaturate arrows that currently cannot push a matching piece.
+		if not model.arrow_ready(a):
+			col = Color.from_hsv(col.h, col.s * 0.35, col.v * 0.55, 0.55)
+		BrickDraw.draw_triangle_arrow(arrow_layer, center, side, col, asize)
 		var hit := Rect2(center - Vector2(asize, asize), Vector2(asize, asize) * 2.0)
 		_arrow_hit_rects.append({"rect": hit, "idx": i})
 
@@ -366,7 +374,11 @@ func _activate_arrow(idx: int) -> void:
 	var snap := model.snapshot()
 	var result := model.try_arrow(idx)
 	if not result.get("ok", false):
-		_refresh_hint("此箭頭目前無法推動")
+		var reason := str(result.get("reason", ""))
+		if reason == "no_piece":
+			_refresh_hint("沒有同色色塊可推")
+		else:
+			_refresh_hint("要同顏色的箭頭才能推出這個色塊")
 		return
 	undo_stack.append(snap)
 	animating = true
@@ -379,7 +391,11 @@ func _slide_selected(dir: Vector2i) -> void:
 	var snap := model.snapshot()
 	var result := model.try_swipe(selected_id, dir)
 	if not result.get("ok", false):
-		_refresh_hint("此方向無法移動")
+		# Swipe may be blocked at the edge because exit requires a matching arrow.
+		if model.pieces.has(selected_id) and model._would_eject(selected_id, dir):
+			_refresh_hint("消除必須透過同色邊框箭頭")
+		else:
+			_refresh_hint("此方向無法移動")
 		return
 	undo_stack.append(snap)
 	animating = true

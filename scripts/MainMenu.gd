@@ -27,6 +27,7 @@ func _build_ui() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 64)
 	title.add_theme_color_override("font_color", Color("FFE66D"))
+	UITheme.apply(title)
 	v.add_child(title)
 
 	var sub := Label.new()
@@ -34,6 +35,7 @@ func _build_ui() -> void:
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 22)
 	sub.add_theme_color_override("font_color", Color("95E1FF"))
+	UITheme.apply(sub)
 	v.add_child(sub)
 
 	var spacer := Control.new()
@@ -44,10 +46,11 @@ func _build_ui() -> void:
 	v.add_child(_make_btn("選擇關卡", _on_select))
 
 	var tip := Label.new()
-	tip.text = "點邊緣色箭頭推動同色積木\n或拖曳積木沿行列滑動；經同色閘口出清"
+	tip.text = "消除必須透過同色邊框箭頭\n拖曳／WASD 僅在棋盤內滑動，無法推出"
 	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tip.add_theme_font_size_override("font_size", 17)
 	tip.add_theme_color_override("font_color", Color(1, 1, 1, 0.65))
+	UITheme.apply(tip)
 	v.add_child(tip)
 
 
@@ -58,6 +61,7 @@ func _make_btn(text: String, cb: Callable) -> Button:
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	b.add_theme_font_size_override("font_size", 28)
 	_style_button(b)
+	UITheme.apply(b)
 	b.pressed.connect(cb)
 	return b
 

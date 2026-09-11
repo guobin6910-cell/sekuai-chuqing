@@ -7,10 +7,10 @@ class_name BoardModel
 ## 2. 色塊為多格 polyomino，整塊平移，不可旋轉。
 ## 3. 邊緣色箭頭：點擊後，找出該列／該行上「距離閘口最近」的同色色塊，
 ##    沿箭頭方向滑到受阻或出清。
-## 4. 亦可點選色塊後朝四向滑動（直到受阻）。
-## 5. 離場條件：下一步若有任何一格越出棋盤，該格必須對應「同色、同側」的箭頭閘口；
-##    只要有一格經合法閘口離場，整塊立即出清。
-## 6. 不可從無閘口的邊緣滑出。黃色通道只是通道，不是出口。
+## 4. 亦可點選色塊後朝四向滑動（僅在棋盤內，直到受阻）。
+## 5. 消除必須透過同色邊框箭頭：離場／出清只能由 try_arrow（via_arrow）觸發；
+##    自由滑動／WASD 不可推出棋盤。閘口仍須同色、同側、同 index。
+## 6. 黃色通道只是通道，不是出口。
 
 const SIDES := {
 	"top": Vector2i(0, -1),
@@ -203,7 +203,7 @@ func arrow_ready(arrow: Dictionary) -> bool:
 	if pid < 0:
 		return false
 	var dir := side_dir(str(arrow["side"]))
-	return _can_step(pid, dir)
+	return _can_step(pid, dir, true)
 
 
 func _copy_cells(cells: Array) -> Array[Vector2i]:
@@ -223,7 +223,7 @@ func _cell_exit_valid(cell: Vector2i, dir: Vector2i, color_hex: String) -> bool:
 	return has_gate(side, idx, color_hex)
 
 
-func _can_step(pid: int, dir: Vector2i) -> bool:
+func _can_step(pid: int, dir: Vector2i, via_arrow: bool = false) -> bool:
 	if not pieces.has(pid):
 		return false
 	var p: Dictionary = pieces[pid]
@@ -239,6 +239,9 @@ func _can_step(pid: int, dir: Vector2i) -> bool:
 			if other >= 0 and other != pid:
 				return false
 		else:
+			# Free swipe/WASD may never leave the board.
+			if not via_arrow:
+				return false
 			if not _cell_exit_valid(cell, dir, hex):
 				return false
 	return true
@@ -259,17 +262,20 @@ func _apply_step(pid: int, dir: Vector2i) -> void:
 	p["cells"] = new_cells
 
 
-func _slide(pid: int, dir: Vector2i) -> Dictionary:
-	var fail := {"ok": false, "pid": pid, "dir": dir, "steps": 0, "cleared": false}
+func _slide(pid: int, dir: Vector2i, via_arrow: bool = false) -> Dictionary:
+	var fail := {"ok": false, "pid": pid, "dir": dir, "steps": 0, "cleared": false, "via_arrow": via_arrow}
 	if not pieces.has(pid):
 		return fail
-	if not _can_step(pid, dir):
+	if not _can_step(pid, dir, via_arrow):
 		return fail
 	var from_cells := _copy_cells(pieces[pid]["cells"])
 	var col: Color = pieces[pid]["color"]
 	var steps := 0
-	while _can_step(pid, dir):
+	while _can_step(pid, dir, via_arrow):
 		if _would_eject(pid, dir):
+			# Eject/clear only when this slide was initiated by a matching-color arrow.
+			if not via_arrow:
+				break
 			steps += 1
 			pieces.erase(pid)
 			return {
@@ -278,6 +284,7 @@ func _slide(pid: int, dir: Vector2i) -> Dictionary:
 				"dir": dir,
 				"steps": steps,
 				"cleared": true,
+				"via_arrow": true,
 				"color": col,
 				"from_cells": from_cells,
 			}
@@ -293,6 +300,7 @@ func _slide(pid: int, dir: Vector2i) -> Dictionary:
 		"dir": dir,
 		"steps": steps,
 		"cleared": false,
+		"via_arrow": via_arrow,
 		"color": col,
 		"from_cells": from_cells,
 		"to_cells": _copy_cells(pieces[pid]["cells"]),
@@ -301,22 +309,26 @@ func _slide(pid: int, dir: Vector2i) -> Dictionary:
 
 func try_arrow(arrow_idx: int) -> Dictionary:
 	if arrow_idx < 0 or arrow_idx >= arrows.size():
-		return {"ok": false, "steps": 0, "cleared": false}
+		return {"ok": false, "steps": 0, "cleared": false, "reason": "bad_arrow"}
 	var arrow: Dictionary = arrows[arrow_idx]
 	var pid := nearest_matching(arrow)
 	if pid < 0:
-		return {"ok": false, "steps": 0, "cleared": false, "reason": "no_piece"}
+		return {"ok": false, "steps": 0, "cleared": false, "reason": "no_piece", "arrow": arrow}
 	var dir := side_dir(str(arrow["side"]))
-	var result := _slide(pid, dir)
+	# via_arrow=true：允許經同色閘口出清
+	var result := _slide(pid, dir, true)
 	result["arrow_idx"] = arrow_idx
 	result["arrow"] = arrow
+	if not result.get("ok", false):
+		result["reason"] = "blocked"
 	return result
 
 
 func try_swipe(pid: int, dir: Vector2i) -> Dictionary:
 	if dir == Vector2i.ZERO:
-		return {"ok": false, "steps": 0, "cleared": false}
-	return _slide(pid, dir)
+		return {"ok": false, "steps": 0, "cleared": false, "reason": "bad_dir"}
+	# Swipe/WASD：只在棋盤內滑動，不可離場出清
+	return _slide(pid, dir, false)
 
 
 func quadrant_of(cell: Vector2i) -> String:
@@ -434,7 +446,7 @@ func goal_summary() -> String:
 	var t := str(goal.get("type", "clear_all"))
 	match t:
 		"clear_all":
-			return "把所有色塊從同色箭頭推出"
+			return "必須用同色邊框箭頭推出所有色塊"
 		"clear_color":
 			return "出清指定顏色"
 		"reach_cross":

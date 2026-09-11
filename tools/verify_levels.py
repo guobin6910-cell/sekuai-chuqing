@@ -123,7 +123,7 @@ class Board:
         idx = cell[0] if side in ("top", "bottom") else cell[1]
         return self.has_gate(side, idx, color_hex)
 
-    def can_step(self, pid: int, d: Tuple[int, int]) -> bool:
+    def can_step(self, pid: int, d: Tuple[int, int], via_arrow: bool = False) -> bool:
         if pid not in self.pieces:
             return False
         p = self.pieces[pid]
@@ -138,6 +138,9 @@ class Board:
                 if other is not None and other != pid:
                     return False
             else:
+                # Free swipe may never leave the board; only arrow moves can eject.
+                if not via_arrow:
+                    return False
                 if not self.cell_exit_valid((x, y), d, hx):
                     return False
         return True
@@ -153,12 +156,14 @@ class Board:
             (x + d[0], y + d[1]) for x, y in self.pieces[pid]["cells"]
         ]
 
-    def slide(self, pid: int, d: Tuple[int, int]) -> bool:
-        if not self.can_step(pid, d):
+    def slide(self, pid: int, d: Tuple[int, int], via_arrow: bool = False) -> bool:
+        if not self.can_step(pid, d, via_arrow):
             return False
         steps = 0
-        while self.can_step(pid, d):
+        while self.can_step(pid, d, via_arrow):
             if self.would_eject(pid, d):
+                if not via_arrow:
+                    break
                 del self.pieces[pid]
                 return True
             self.apply_step(pid, d)
@@ -206,10 +211,11 @@ class Board:
         if pid is None:
             return False
         d = self.side_dir(arrow["side"])
-        return self.slide(pid, d)
+        return self.slide(pid, d, via_arrow=True)
 
     def try_swipe(self, pid: int, d: Tuple[int, int]) -> bool:
-        return self.slide(pid, d)
+        # Swipe/WASD: slide inside board only; no eject/clear.
+        return self.slide(pid, d, via_arrow=False)
 
     def quadrant_of(self, cell: Tuple[int, int]) -> str:
         x, y = cell

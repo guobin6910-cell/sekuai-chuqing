@@ -23,6 +23,7 @@ func _build_ui() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 72)
 	title.add_theme_color_override("font_color", Color("FFE66D"))
+	UITheme.apply(title)
 	v.add_child(title)
 
 	var sub := Label.new()
@@ -31,6 +32,7 @@ func _build_ui() -> void:
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 24)
 	sub.add_theme_color_override("font_color", Color("95E1FF"))
+	UITheme.apply(sub)
 	v.add_child(sub)
 
 	var spacer := Control.new()
@@ -45,6 +47,7 @@ func _build_ui() -> void:
 		done.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		done.add_theme_font_size_override("font_size", 22)
 		done.add_theme_color_override("font_color", Color("4ECDC4"))
+		UITheme.apply(done)
 		v.add_child(done)
 
 	v.add_child(_btn("再玩一次", _on_retry))
@@ -71,6 +74,7 @@ func _btn(text: String, cb: Callable) -> Button:
 	b.add_theme_stylebox_override("pressed", h)
 	b.add_theme_color_override("font_color", Color("1a1040"))
 	b.add_theme_color_override("font_hover_color", Color("1a1040"))
+	UITheme.apply(b)
 	b.pressed.connect(cb)
 	return b
 
