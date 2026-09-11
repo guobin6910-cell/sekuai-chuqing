@@ -1,29 +1,33 @@
 {
   "id": 4,
-  "name": "第4關：L 型色塊",
+  "name": "第4關：黃色十字",
   "width": 5,
   "height": 5,
   "yellow_cross": { "type": "plus", "col": 2, "row": 2 },
-  "walls": [],
+  "walls": [
+    {"x": 0, "y": 1},
+    {"x": 1, "y": 1},
+    {"x": 3, "y": 3},
+    {"x": 4, "y": 3}
+  ],
   "pieces": [
     {
       "id": 1,
       "color": "#C77DFF",
-      "cells": [{"x": 0, "y": 0}, {"x": 0, "y": 1}, {"x": 1, "y": 1}]
+      "cells": [{"x": 0, "y": 0}]
     },
     {
       "id": 2,
       "color": "#4A90FF",
-      "cells": [{"x": 3, "y": 4}]
+      "cells": [{"x": 4, "y": 4}]
     }
   ],
   "edge_arrows": [
-    { "side": "left", "index": 0, "color": "#C77DFF", "dir": "out" },
-    { "side": "left", "index": 1, "color": "#C77DFF", "dir": "out" },
-    { "side": "bottom", "index": 3, "color": "#4A90FF", "dir": "out" }
+    { "side": "left", "index": 4, "color": "#C77DFF", "dir": "out" },
+    { "side": "right", "index": 0, "color": "#4A90FF", "dir": "out" }
   ],
   "goal": { "type": "clear_all" },
-  "hint_text": "L 型要對齊兩格閘口才能推出",
-  "hint_highlight": "L 型",
-  "hint_highlight_color": "#C77DFF"
+  "hint_text": "沿著黃色十字通道走到同色箭頭",
+  "hint_highlight": "黃色",
+  "hint_highlight_color": "#FFD400"
 }

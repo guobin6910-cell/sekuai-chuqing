@@ -1,5 +1,5 @@
 extends Control
-## 遊戲主畫面：黃十字棋盤、邊緣色箭頭、積木繪製、Undo／通關
+## 遊戲主畫面：滑動色塊、接觸同色箭頭自動出清、Undo／通關
 
 const BG := Color("1B1438")
 const FRAME := Color("B8A4E0")
@@ -12,6 +12,7 @@ var model: BoardModel = BoardModel.new()
 var selected_id: int = -1
 var undo_stack: Array = []
 var animating: bool = false
+var pulse_pids: Dictionary = {} ## pid -> true (arrow tap highlight)
 
 var cell_size: float = 56.0
 var frame_inset: float = 36.0
@@ -30,6 +31,7 @@ var goal_label: Label
 var _drag_start: Vector2 = Vector2.ZERO
 var _dragging: bool = false
 var _arrow_hit_rects: Array = []
+var _pulse_tween: Tween
 
 
 func _ready() -> void:
@@ -44,6 +46,9 @@ func _load_level(index: int) -> void:
 	model.load_from_dict(data)
 	selected_id = -1
 	undo_stack.clear()
+	pulse_pids.clear()
+	# Level-start contact check (pieces already on matching gates).
+	model.try_auto_clear()
 
 
 func _build_ui() -> void:
@@ -131,6 +136,12 @@ func _build_ui() -> void:
 
 	board_host.resized.connect(_recalc_layout)
 	call_deferred("_recalc_layout")
+	call_deferred("_check_win_after_load")
+
+
+func _check_win_after_load() -> void:
+	if model.check_win():
+		_on_win()
 
 
 func _refresh_hint(extra: String = "") -> void:
@@ -222,9 +233,6 @@ func _draw_arrows() -> void:
 		var idx := int(a["index"])
 		var center := _arrow_center(side, idx)
 		var col: Color = a["color"]
-		# Dim / desaturate arrows that currently cannot push a matching piece.
-		if not model.arrow_ready(a):
-			col = Color.from_hsv(col.h, col.s * 0.35, col.v * 0.55, 0.55)
 		BrickDraw.draw_triangle_arrow(arrow_layer, center, side, col, asize)
 		var hit := Rect2(center - Vector2(asize, asize), Vector2(asize, asize) * 2.0)
 		_arrow_hit_rects.append({"rect": hit, "idx": i})
@@ -255,13 +263,14 @@ func _rebuild_piece_visuals() -> void:
 		node.name = "Piece_%d" % pid
 		node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		piece_layer.add_child(node)
+		var pulsed := pulse_pids.has(int(pid))
 		for cell: Vector2i in p["cells"]:
 			if not model.in_bounds(cell.x, cell.y):
 				continue
 			var drawer := _BrickCell.new()
 			drawer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			drawer.base_color = p["color"]
-			drawer.selected = (int(pid) == selected_id)
+			drawer.selected = (int(pid) == selected_id) or pulsed
 			var margin := cell_size * 0.06
 			drawer.position = board_origin + Vector2(cell) * cell_size + Vector2(margin, margin)
 			drawer.size = Vector2(cell_size - margin * 2.0, cell_size - margin * 2.0)
@@ -313,6 +322,7 @@ func _on_board_input(event: InputEvent) -> void:
 			var pid := model.piece_at(cell.x, cell.y) if cell.x >= 0 else -1
 			if pid >= 0:
 				selected_id = pid
+				pulse_pids.clear()
 				_rebuild_piece_visuals()
 		else:
 			if _dragging and selected_id >= 0:
@@ -332,6 +342,7 @@ func _on_board_input(event: InputEvent) -> void:
 			var pid2 := model.piece_at(cell2.x, cell2.y) if cell2.x >= 0 else -1
 			if pid2 >= 0:
 				selected_id = pid2
+				pulse_pids.clear()
 				_rebuild_piece_visuals()
 		else:
 			if _dragging and selected_id >= 0:
@@ -371,18 +382,33 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _activate_arrow(idx: int) -> void:
-	var snap := model.snapshot()
-	var result := model.try_arrow(idx)
-	if not result.get("ok", false):
-		var reason := str(result.get("reason", ""))
-		if reason == "no_piece":
-			_refresh_hint("沒有同色色塊可推")
-		else:
-			_refresh_hint("要同顏色的箭頭才能推出這個色塊")
+	# Arrows are exit markers; tap only highlights matching pieces.
+	var peek := model.peek_arrow(idx)
+	if not peek.get("ok", false):
 		return
-	undo_stack.append(snap)
-	animating = true
-	_play_result(result)
+	pulse_pids.clear()
+	var pids: Array = peek.get("pids", [])
+	for pid in pids:
+		pulse_pids[int(pid)] = true
+	if pids.is_empty():
+		_refresh_hint("沒有同色色塊")
+	else:
+		_refresh_hint("同色色塊已標示 — 滑到箭頭上才會出清")
+		if selected_id < 0 and pids.size() > 0:
+			selected_id = int(pids[0])
+	_rebuild_piece_visuals()
+	_pulse_pieces_briefly()
+
+
+func _pulse_pieces_briefly() -> void:
+	if _pulse_tween and _pulse_tween.is_valid():
+		_pulse_tween.kill()
+	_pulse_tween = create_tween()
+	_pulse_tween.tween_interval(0.85)
+	_pulse_tween.tween_callback(func ():
+		pulse_pids.clear()
+		_rebuild_piece_visuals()
+	)
 
 
 func _slide_selected(dir: Vector2i) -> void:
@@ -391,11 +417,7 @@ func _slide_selected(dir: Vector2i) -> void:
 	var snap := model.snapshot()
 	var result := model.try_swipe(selected_id, dir)
 	if not result.get("ok", false):
-		# Swipe may be blocked at the edge because exit requires a matching arrow.
-		if model.pieces.has(selected_id) and model._would_eject(selected_id, dir):
-			_refresh_hint("消除必須透過同色邊框箭頭")
-		else:
-			_refresh_hint("此方向無法移動")
+		_refresh_hint("此方向無法移動")
 		return
 	undo_stack.append(snap)
 	animating = true
@@ -408,11 +430,17 @@ func _play_result(result: Dictionary) -> void:
 	var dir: Vector2i = result.get("dir", Vector2i.ZERO)
 	var steps: int = int(result.get("steps", 1))
 	var cleared: bool = bool(result.get("cleared", false))
+	var cleared_list: Array = result.get("cleared_list", [])
 	var col: Color = result.get("color", Color.WHITE)
+	var from_cells: Array = result.get("from_cells", [])
 
+	# Animate slide; if cleared mid/end, ghost travels then particles.
 	if cleared:
 		await _spawn_ghost_and_tween(result)
-		_spawn_exit_particles(col, dir, result)
+		_spawn_clear_particles(col, from_cells, dir, steps)
+		for item in cleared_list:
+			if int(item.get("pid", -1)) != pid:
+				_spawn_clear_particles(item.get("color", Color.WHITE), item.get("cells", []), Vector2i.ZERO, 0)
 	else:
 		_rebuild_piece_visuals()
 		var node := piece_layer.get_node_or_null("Piece_%d" % pid)
@@ -424,9 +452,13 @@ func _play_result(result: Dictionary) -> void:
 			await tw.finished
 		else:
 			await get_tree().create_timer(0.05).timeout
+		# Non-self clears (shouldn't happen often without moving that piece)
+		for item in cleared_list:
+			_spawn_clear_particles(item.get("color", Color.WHITE), item.get("cells", []), Vector2i.ZERO, 0)
 
 	if cleared and selected_id == pid:
 		selected_id = -1
+	pulse_pids.clear()
 	_rebuild_piece_visuals()
 	board_layer.queue_redraw()
 	arrow_layer.queue_redraw()
@@ -459,6 +491,7 @@ func _spawn_ghost_and_tween(result: Dictionary) -> void:
 	var tw := create_tween()
 	tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tw.tween_property(ghost, "position", ghost.position + Vector2(dir) * cell_size * float(steps), 0.12 + 0.04 * steps)
+	tw.parallel().tween_property(ghost, "modulate:a", 0.15, 0.12 + 0.04 * steps)
 	await tw.finished
 	ghost.queue_free()
 
@@ -471,13 +504,13 @@ func _as_cell(c) -> Vector2i:
 	return Vector2i.ZERO
 
 
-func _spawn_exit_particles(color: Color, dir: Vector2i, result: Dictionary) -> void:
-	var from_cells: Array = result.get("from_cells", [])
+func _spawn_clear_particles(color: Color, cells: Array, dir: Vector2i, steps: int) -> void:
 	var center := board_origin + Vector2(model.grid_w, model.grid_h) * cell_size * 0.5
-	if from_cells.size() > 0:
-		var cell := _as_cell(from_cells[0])
+	if cells.size() > 0:
+		var cell := _as_cell(cells[0])
 		center = board_origin + Vector2(cell) * cell_size + Vector2(cell_size, cell_size) * 0.5
-		center += Vector2(dir) * cell_size * 0.9
+		if dir != Vector2i.ZERO and steps > 0:
+			center += Vector2(dir) * cell_size * float(steps)
 	for i in 14:
 		var p := ColorRect.new()
 		p.color = color.lightened(randf_range(-0.1, 0.2))
@@ -487,7 +520,8 @@ func _spawn_exit_particles(color: Color, dir: Vector2i, result: Dictionary) -> v
 		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		fx_layer.add_child(p)
 		var tw := create_tween()
-		var target := p.position + Vector2(dir) * randf_range(50, 110) + Vector2(randf_range(-40, 40), randf_range(-40, 40))
+		var scatter := Vector2(dir) * randf_range(20, 70) if dir != Vector2i.ZERO else Vector2.ZERO
+		var target := p.position + scatter + Vector2(randf_range(-50, 50), randf_range(-50, 50))
 		tw.tween_property(p, "position", target, 0.45)
 		tw.parallel().tween_property(p, "modulate:a", 0.0, 0.45)
 		tw.tween_callback(p.queue_free)
@@ -502,6 +536,7 @@ func _on_undo() -> void:
 	var snap: Dictionary = undo_stack.pop_back()
 	model.restore(snap)
 	selected_id = -1
+	pulse_pids.clear()
 	_rebuild_piece_visuals()
 	board_layer.queue_redraw()
 	arrow_layer.queue_redraw()

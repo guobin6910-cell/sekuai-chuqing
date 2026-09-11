@@ -31,7 +31,7 @@ func _build_ui() -> void:
 	v.add_child(title)
 
 	var sub := Label.new()
-	sub.text = "黃十字通道 · 邊緣色箭頭 · 塑膠積木"
+	sub.text = "滑動色塊 · 同色箭頭出清 · 塑膠積木"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 22)
 	sub.add_theme_color_override("font_color", Color("95E1FF"))
@@ -46,7 +46,7 @@ func _build_ui() -> void:
 	v.add_child(_make_btn("選擇關卡", _on_select))
 
 	var tip := Label.new()
-	tip.text = "消除必須透過同色邊框箭頭\n拖曳／WASD 僅在棋盤內滑動，無法推出"
+	tip.text = "把色塊滑到同色邊框箭頭上就會自動出清\n點箭頭可標示同色色塊"
 	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tip.add_theme_font_size_override("font_size", 17)
 	tip.add_theme_color_override("font_color", Color(1, 1, 1, 0.65))

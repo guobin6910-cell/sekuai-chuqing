@@ -1,22 +1,22 @@
 {
   "id": 1,
-  "name": "第1關：邊緣箭頭",
-  "width": 5,
-  "height": 5,
-  "yellow_cross": { "type": "plus", "col": 2, "row": 2 },
+  "name": "第1關：碰到就出清",
+  "width": 4,
+  "height": 4,
+  "yellow_cross": null,
   "walls": [],
   "pieces": [
     {
       "id": 1,
-      "color": "#FF6B9D",
-      "cells": [{"x": 1, "y": 0}]
+      "color": "#FF8C42",
+      "cells": [{"x": 1, "y": 1}]
     }
   ],
   "edge_arrows": [
-    { "side": "top", "index": 1, "color": "#FF6B9D", "dir": "out" }
+    { "side": "right", "index": 1, "color": "#FF8C42", "dir": "out" }
   ],
   "goal": { "type": "clear_all" },
-  "hint_text": "點上方的粉紅箭頭，把色塊推出",
-  "hint_highlight": "粉紅",
-  "hint_highlight_color": "#FF6B9D"
+  "hint_text": "把橘色推到橘色箭頭",
+  "hint_highlight": "橘色",
+  "hint_highlight_color": "#FF8C42"
 }

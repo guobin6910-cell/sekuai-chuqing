@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BFS solvability check for 色塊出清 levels (mirrors BoardModel.gd rules)."""
+"""BFS solvability check for 色塊出清 levels (mirrors BoardModel.gd contact-clear rules)."""
 from __future__ import annotations
 
 import json
@@ -27,10 +27,6 @@ def norm_hex(h: str) -> str:
     return s
 
 
-def cell_key(x: int, y: int) -> str:
-    return f"{x},{y}"
-
-
 class Board:
     def __init__(self, data: Dict[str, Any]):
         self.w = int(data.get("width", 7))
@@ -40,9 +36,15 @@ class Board:
         for w in data.get("walls", []):
             self.walls.add((int(w["x"]), int(w["y"])))
         self.cross = set()
+        self.has_cross = False
         self.cross_col = self.w // 2
         self.cross_row = self.h // 2
-        self._parse_cross(data.get("yellow_cross", data.get("cross", {})))
+        xc = None
+        if "yellow_cross" in data:
+            xc = data["yellow_cross"]
+        elif "cross" in data:
+            xc = data["cross"]
+        self._parse_cross(xc)
         self.pieces: Dict[int, Dict[str, Any]] = {}
         for p in data.get("pieces", []):
             pid = int(p["id"])
@@ -59,25 +61,47 @@ class Board:
                     "dir": str(a.get("dir", "out")),
                 }
             )
+        # Level-start contact clear
+        self.try_auto_clear()
 
     def _parse_cross(self, xc: Any) -> None:
+        self.cross.clear()
+        self.has_cross = False
+        if xc is None:
+            return
+        if isinstance(xc, bool):
+            if not xc:
+                return
+            self._build_plus(self.cross_col, self.cross_row)
+            return
         if isinstance(xc, dict):
+            if not xc:
+                return
+            if xc.get("enabled", True) is False:
+                return
             self.cross_col = int(xc.get("cx", xc.get("col", self.cross_col)))
             self.cross_row = int(xc.get("cy", xc.get("row", self.cross_row)))
-            for x in range(self.w):
-                self.cross.add((x, self.cross_row))
-            for y in range(self.h):
-                self.cross.add((self.cross_col, y))
+            mode = str(xc.get("type", ""))
+            want_plus = mode == "plus" or any(
+                k in xc for k in ("col", "cx", "row", "cy")
+            )
+            if want_plus:
+                self._build_plus(self.cross_col, self.cross_row)
             for c in xc.get("cells", []):
                 self.cross.add((int(c["x"]), int(c["y"])))
-        elif isinstance(xc, list):
+                self.has_cross = True
+            return
+        if isinstance(xc, list):
             for c in xc:
                 self.cross.add((int(c["x"]), int(c["y"])))
-        else:
-            for x in range(self.w):
-                self.cross.add((x, self.cross_row))
-            for y in range(self.h):
-                self.cross.add((self.cross_col, y))
+                self.has_cross = True
+
+    def _build_plus(self, col: int, row: int) -> None:
+        for x in range(self.w):
+            self.cross.add((x, row))
+        for y in range(self.h):
+            self.cross.add((col, y))
+        self.has_cross = True
 
     def in_bounds(self, x: int, y: int) -> bool:
         return 0 <= x < self.w and 0 <= y < self.h
@@ -96,128 +120,80 @@ class Board:
                     occ[(x, y)] = pid
         return occ
 
-    def has_gate(self, side: str, index: int, color_hex: str) -> bool:
-        want = norm_hex(color_hex)
+    def piece_at(self, x: int, y: int) -> Optional[int]:
+        return self.occupancy().get((x, y))
+
+    def gate_cell(self, side: str, index: int) -> Tuple[int, int]:
+        if side == "top":
+            return (index, 0)
+        if side == "bottom":
+            return (index, self.h - 1)
+        if side == "left":
+            return (0, index)
+        if side == "right":
+            return (self.w - 1, index)
+        return (-1, -1)
+
+    def try_auto_clear(self) -> List[int]:
+        """Clear pieces that occupy a same-color arrow gate cell."""
+        to_erase = []
+        seen = set()
         for a in self.arrows:
-            if a["side"] == side and a["index"] == index and a["color_hex"] == want:
-                return True
-        return False
+            gx, gy = self.gate_cell(a["side"], a["index"])
+            if not self.in_bounds(gx, gy):
+                continue
+            pid = self.piece_at(gx, gy)
+            if pid is None or pid in seen:
+                continue
+            if pid not in self.pieces:
+                continue
+            if self.pieces[pid]["color_hex"] != a["color_hex"]:
+                continue
+            seen.add(pid)
+            to_erase.append(pid)
+        for pid in to_erase:
+            del self.pieces[pid]
+        return to_erase
 
-    def side_dir(self, side: str) -> Tuple[int, int]:
-        return SIDES[side]
-
-    def exit_side(self, dx: int, dy: int) -> str:
-        if dy < 0:
-            return "top"
-        if dy > 0:
-            return "bottom"
-        if dx < 0:
-            return "left"
-        return "right"
-
-    def cell_exit_valid(self, cell: Tuple[int, int], d: Tuple[int, int], color_hex: str) -> bool:
-        nx, ny = cell[0] + d[0], cell[1] + d[1]
-        if self.in_bounds(nx, ny):
-            return True
-        side = self.exit_side(d[0], d[1])
-        idx = cell[0] if side in ("top", "bottom") else cell[1]
-        return self.has_gate(side, idx, color_hex)
-
-    def can_step(self, pid: int, d: Tuple[int, int], via_arrow: bool = False) -> bool:
+    def can_step(self, pid: int, d: Tuple[int, int]) -> bool:
         if pid not in self.pieces:
             return False
-        p = self.pieces[pid]
         occ = self.occupancy()
-        hx = p["color_hex"]
-        for x, y in p["cells"]:
-            nx, ny = x + d[0], y + d[1]
-            if self.in_bounds(nx, ny):
-                if self.is_wall(nx, ny):
-                    return False
-                other = occ.get((nx, ny))
-                if other is not None and other != pid:
-                    return False
-            else:
-                # Free swipe may never leave the board; only arrow moves can eject.
-                if not via_arrow:
-                    return False
-                if not self.cell_exit_valid((x, y), d, hx):
-                    return False
-        return True
-
-    def would_eject(self, pid: int, d: Tuple[int, int]) -> bool:
         for x, y in self.pieces[pid]["cells"]:
-            if not self.in_bounds(x + d[0], y + d[1]):
-                return True
-        return False
+            nx, ny = x + d[0], y + d[1]
+            if not self.in_bounds(nx, ny):
+                return False
+            if self.is_wall(nx, ny):
+                return False
+            other = occ.get((nx, ny))
+            if other is not None and other != pid:
+                return False
+        return True
 
     def apply_step(self, pid: int, d: Tuple[int, int]) -> None:
         self.pieces[pid]["cells"] = [
             (x + d[0], y + d[1]) for x, y in self.pieces[pid]["cells"]
         ]
 
-    def slide(self, pid: int, d: Tuple[int, int], via_arrow: bool = False) -> bool:
-        if not self.can_step(pid, d, via_arrow):
+    def try_swipe(self, pid: int, d: Tuple[int, int]) -> bool:
+        if d == (0, 0) or pid not in self.pieces:
+            return False
+        if not self.can_step(pid, d):
             return False
         steps = 0
-        while self.can_step(pid, d, via_arrow):
-            if self.would_eject(pid, d):
-                if not via_arrow:
-                    break
-                del self.pieces[pid]
-                return True
+        while pid in self.pieces and self.can_step(pid, d):
             self.apply_step(pid, d)
             steps += 1
+            cleared = self.try_auto_clear()
+            if pid in cleared or pid not in self.pieces:
+                break
             if steps > self.w + self.h + 2:
                 break
         return steps > 0
 
-    def on_track(self, cell: Tuple[int, int], arrow: Dict[str, Any]) -> bool:
-        side = arrow["side"]
-        idx = arrow["index"]
-        if side in ("top", "bottom"):
-            return cell[0] == idx
-        return cell[1] == idx
-
-    def dist_to_gate(self, cell: Tuple[int, int], arrow: Dict[str, Any]) -> int:
-        side = arrow["side"]
-        if side == "top":
-            return cell[1]
-        if side == "bottom":
-            return self.h - 1 - cell[1]
-        if side == "left":
-            return cell[0]
-        return self.w - 1 - cell[0]
-
-    def nearest_matching(self, arrow: Dict[str, Any]) -> Optional[int]:
-        want = arrow["color_hex"]
-        best = None
-        best_d = 10**9
-        for pid, p in self.pieces.items():
-            if p["color_hex"] != want:
-                continue
-            for cell in p["cells"]:
-                if not self.on_track(cell, arrow):
-                    continue
-                d = self.dist_to_gate(cell, arrow)
-                if d < best_d:
-                    best_d = d
-                    best = pid
-        return best
-
-    def try_arrow(self, idx: int) -> bool:
-        arrow = self.arrows[idx]
-        pid = self.nearest_matching(arrow)
-        if pid is None:
-            return False
-        d = self.side_dir(arrow["side"])
-        return self.slide(pid, d, via_arrow=True)
-
-    def try_swipe(self, pid: int, d: Tuple[int, int]) -> bool:
-        # Swipe/WASD: slide inside board only; no eject/clear.
-        return self.slide(pid, d, via_arrow=False)
-
     def quadrant_of(self, cell: Tuple[int, int]) -> str:
+        if not self.has_cross:
+            return ""
         x, y = cell
         if self.is_cross(x, y):
             return ""
@@ -232,6 +208,8 @@ class Board:
         return ""
 
     def sort_ok(self, mapping: Dict[str, Any]) -> bool:
+        if not self.has_cross:
+            return False
         qcols = {"tl": set(), "tr": set(), "bl": set(), "br": set()}
         for p in self.pieces.values():
             hx = p["color_hex"]
@@ -293,8 +271,6 @@ class Board:
 
 def all_moves(board: Board) -> List[Tuple[str, Any]]:
     moves = []
-    for i in range(len(board.arrows)):
-        moves.append(("arrow", i))
     for pid in list(board.pieces.keys()):
         for d in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             moves.append(("swipe", (pid, d)))
@@ -303,8 +279,8 @@ def all_moves(board: Board) -> List[Tuple[str, Any]]:
 
 def apply_move(board: Board, move: Tuple[str, Any]) -> bool:
     kind, payload = move
-    if kind == "arrow":
-        return board.try_arrow(payload)
+    if kind != "swipe":
+        return False
     pid, d = payload
     if pid not in board.pieces:
         return False
@@ -330,11 +306,8 @@ def solve(data: Dict[str, Any], limit: int = 200000) -> Optional[List[str]]:
             if key in seen:
                 continue
             kind, payload = move
-            if kind == "arrow":
-                desc = f"arrow[{payload}]"
-            else:
-                pid, d = payload
-                desc = f"swipe({pid},{d})"
+            pid, d = payload
+            desc = f"swipe({pid},{d})"
             npath = path + [desc]
             if nxt.check_win():
                 return npath
@@ -355,12 +328,21 @@ def main() -> int:
         path = os.path.join(LEVEL_DIR, f)
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
+        xc = data.get("yellow_cross", data.get("cross", None))
+        has_cross = False
+        if isinstance(xc, dict) and xc:
+            has_cross = True
+        elif isinstance(xc, list) and xc:
+            has_cross = True
+        elif xc is True:
+            has_cross = True
         sol = solve(data)
+        cross_tag = "cross=yes" if has_cross else "cross=no"
         if sol is None:
-            print(f"FAIL {f}: unsolvable (or BFS limit)")
+            print(f"FAIL {f} ({cross_tag}): unsolvable (or BFS limit)")
             ok_all = False
         else:
-            print(f"OK   {f}: {len(sol)} moves -> {sol}")
+            print(f"OK   {f} ({cross_tag}): {len(sol)} moves -> {sol}")
     return 0 if ok_all else 2
 
 
