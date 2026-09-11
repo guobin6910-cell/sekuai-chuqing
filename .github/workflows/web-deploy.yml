@@ -1,0 +1,91 @@
+# Export 《色塊出清》 to HTML5 (single-threaded) and deploy to GitHub Pages.
+name: Web Export & Pages
+
+on:
+  push:
+    branches: [main, feature/sekuai-chuqing-mvp]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.3"
+  GODOT_TAG: "4.3-stable"
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Godot binary & templates
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            .godot-ci/godot
+            .godot-ci/templates
+          key: godot-${{ env.GODOT_TAG }}-linux-templates
+
+      - name: Download Godot & export templates
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p .godot-ci/godot .godot-ci/templates
+          curl -L --fail --retry 3 -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot-builds/releases/download/${GODOT_TAG}/Godot_v${GODOT_TAG}_linux.x86_64.zip"
+          unzip -o /tmp/godot.zip -d /tmp/godot-bin
+          GODOT_BIN=$(find /tmp/godot-bin -type f -name 'Godot_*' | head -1)
+          install -m 755 "$GODOT_BIN" .godot-ci/godot/godot
+          curl -L --fail --retry 3 -o /tmp/templates.tpz \
+            "https://github.com/godotengine/godot-builds/releases/download/${GODOT_TAG}/Godot_v${GODOT_TAG}_export_templates.tpz"
+          unzip -o /tmp/templates.tpz -d /tmp/templates-extract
+          # .tpz contains templates/* → place as 4.3.stable/
+          mkdir -p .godot-ci/templates/${GODOT_VERSION}.stable
+          cp -a /tmp/templates-extract/templates/. .godot-ci/templates/${GODOT_VERSION}.stable/
+
+      - name: Install templates into Godot path
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share/godot/export_templates"
+          rm -rf "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          cp -a ".godot-ci/templates/${GODOT_VERSION}.stable" \
+            "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          chmod +x .godot-ci/godot/godot
+          .godot-ci/godot/godot --version
+
+      - name: Headless Web export (single-threaded preset)
+        run: |
+          set -euo pipefail
+          mkdir -p build/web
+          # Import project assets first, then export-release "Web"
+          .godot-ci/godot/godot --headless --path . --import || true
+          .godot-ci/godot/godot --headless --path . --export-release "Web" build/web/index.html
+          test -f build/web/index.html
+          # Ensure Pages does not run Jekyll on underscore paths
+          touch build/web/.nojekyll
+          ls -la build/web
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    needs: export
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
